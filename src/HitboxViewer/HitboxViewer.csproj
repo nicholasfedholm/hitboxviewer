@@ -1,0 +1,39 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>HitboxViewer</AssemblyName>
+    <Version>0.2.0</Version>
+    <RootNamespace>HitboxViewer</RootNamespace>
+    <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <VSDir Condition="'$(VSDir)' == '' And '$(VINTAGE_STORY)' != ''">$(VINTAGE_STORY)</VSDir>
+    <VSDir Condition="'$(VSDir)' == '' And Exists('$(LOCALAPPDATA)\Programs\Optimum')">$(LOCALAPPDATA)\Programs\Optimum</VSDir>
+    <VSDir Condition="'$(VSDir)' == ''">$(APPDATA)\Vintagestory</VSDir>
+    <!-- Combat Overhaul lib (overhaulliblegacycompat 1.2.15-perffix), read from the read-only master unpack. -->
+    <CODir Condition="'$(CODir)' == ''">C:\Work\vs\master-unpack\overhaulliblegacycompat</CODir>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <!-- Keeps the build machine's folder names out of the PDB path embedded in the DLL. -->
+    <PathMap>$([System.IO.Path]::GetFullPath('$(MSBuildProjectDirectory)/..'))=/src</PathMap>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="VintagestoryAPI">
+      <HintPath>$(VSDir)\VintagestoryAPI.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="OpenTK.Mathematics">
+      <HintPath>$(VSDir)\OpenTK.Mathematics.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="protobuf-net">
+      <HintPath>$(VSDir)\Lib\protobuf-net.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="OverhaullibLegacyCompat">
+      <HintPath>$(CODir)\OverhaullibLegacyCompat.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+</Project>

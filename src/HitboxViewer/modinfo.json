@@ -1,0 +1,12 @@
+{
+  "type": "code",
+  "modid": "hitboxviewer",
+  "name": "Hitbox Viewer",
+  "version": "0.2.0",
+  "authors": ["Nick"],
+  "description": "Debug tool: draws the colliders Combat Overhaul actually hit-tests (body parts and organs), plus collision and selection boxes; KEYPOINTS mode shows only the zones CO rewards, with multipliers read from the server. Alt+H or .hbv. Read-only, changes no game state.",
+  "side": "Universal",
+  "requiredOnClient": false,
+  "requiredOnServer": false,
+  "dependencies": { "game": "1.22.0" }
+}

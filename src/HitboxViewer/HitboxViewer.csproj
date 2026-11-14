@@ -2,7 +2,7 @@
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <AssemblyName>HitboxViewer</AssemblyName>
-    <Version>0.2.0</Version>
+    <Version>0.2.1</Version>
     <RootNamespace>HitboxViewer</RootNamespace>
     <Nullable>enable</Nullable>
     <LangVersion>latest</LangVersion>
@@ -25,6 +25,10 @@
     </Reference>
     <Reference Include="OpenTK.Mathematics">
       <HintPath>$(VSDir)\OpenTK.Mathematics.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="OpenTK.Graphics">
+      <HintPath>$(VSDir)\OpenTK.Graphics.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="protobuf-net">

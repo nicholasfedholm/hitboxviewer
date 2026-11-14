@@ -42,7 +42,7 @@ public sealed class HitboxViewerSystem : ModSystem
                 api.Logger.Warning("[hitboxviewer] zone request failed: " + ex.Message);
             }
         });
-        api.Logger.Notification("[hitboxviewer] 0.2.0 server side loaded; KEYPOINTS zone channel ready, CO " + (ServerCoAccess.CoPresent ? "present" : "absent"));
+        api.Logger.Notification("[hitboxviewer] 0.2.1 server side loaded; KEYPOINTS zone channel ready, CO " + (ServerCoAccess.CoPresent ? "present" : "absent"));
     }
 
     public override void StartClientSide(ICoreClientAPI api)
@@ -84,7 +84,7 @@ public sealed class HitboxViewerSystem : ModSystem
             .WithArgs(api.ChatCommands.Parsers.OptionalWord("action"))
             .HandleWith(OnCommand);
 
-        api.Logger.Notification("[hitboxviewer] 0.2.0 loaded; Combat Overhaul colliders " + (renderer.CoAvailable ? "available" : "NOT available (collision/selection boxes only)"));
+        api.Logger.Notification("[hitboxviewer] 0.2.1 loaded; Combat Overhaul colliders " + (renderer.CoAvailable ? "available" : "NOT available (collision/selection boxes only)"));
     }
 
     private TextCommandResult OnCommand(TextCommandCallingArgs args)

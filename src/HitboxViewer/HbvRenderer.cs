@@ -10,12 +10,15 @@ using Vintagestory.API.Common.Entities;
 using Vintagestory.API.Config;
 using Vintagestory.API.MathTools;
 using Vintagestory.Client.NoObf;
+using OGL = OpenTK.Graphics.OpenGL;
 
 namespace HitboxViewer;
 
 /// <summary>
-/// One renderer, two stages: AfterFinalComposition draws the wireframes (depth-tested, like the vanilla
-/// selection box), Ortho draws the labels. When the mode is Off both stages return on the first check.
+/// One renderer, two stages: AfterFinalComposition draws the wireframes, Ortho draws the labels.
+/// TARGET and RADIUS wireframes are depth-tested like the vanilla selection box. KEYPOINTS (0.2.1) draws on
+/// top: organs sit inside the body, so a depth-tested pass hid them (see BeginOnTop). Labels draw at Ortho
+/// on the default framebuffer, which holds no 3D scene depth, so the body never occludes them. When the mode is Off both stages return on the first check.
 /// </summary>
 public sealed class HbvRenderer : IRenderer
 {
@@ -40,14 +43,27 @@ public sealed class HbvRenderer : IRenderer
     internal static readonly Vec4f ColEyes = new(0f, 1f, 1f, 1f);
     internal static readonly Vec4f ColCriticalOther = new(1f, 0.55f, 0f, 1f);
 
-    // KEYPOINTS (0.2.0): bonus zones. Organs keep their organ colour (dimmed below x2); other bonus zones one
-    // highlight colour in two tiers: amber for >1.0, bright yellow for >=2.0.
-    internal static readonly Vec4f ColKeyStd = new(1f, 0.6f, 0.1f, 1f);
-    internal static readonly Vec4f ColKeyStrong = new(1f, 1f, 0.35f, 1f);
-    private static readonly Vec4f ColHeartDim = new(0.65f, 0.03f, 0.03f, 1f);
-    private static readonly Vec4f ColLungsDim = new(0.65f, 0.3f, 0.5f, 1f);
-    private static readonly Vec4f ColBrainDim = new(0.42f, 0.13f, 0.65f, 1f);
-    private static readonly Vec4f ColEyesDim = new(0f, 0.65f, 0.65f, 1f);
+    // KEYPOINTS: bonus zones. Organs keep their organ colour (dimmed below x2); other bonus zones one
+    // highlight colour in two tiers: amber for >1.0, bright yellow for >=2.0. 0.2.1: translucent (Kp* below).
+
+    // KEYPOINTS (0.2.1): on-top pass, so the highlights are translucent to keep the body readable through
+    // them. Separate instances: TARGET keeps the opaque organ colours above unchanged.
+    private const float KeyAlphaStrong = 0.8f, KeyAlphaDim = 0.65f;
+    private static readonly Vec4f KpHeart = new(1f, 0.05f, 0.05f, KeyAlphaStrong);
+    private static readonly Vec4f KpLungs = new(1f, 0.45f, 0.75f, KeyAlphaStrong);
+    private static readonly Vec4f KpBrain = new(0.65f, 0.2f, 1f, KeyAlphaStrong);
+    private static readonly Vec4f KpEyes = new(0f, 1f, 1f, KeyAlphaStrong);
+    private static readonly Vec4f KpHeartDim = new(0.65f, 0.03f, 0.03f, KeyAlphaDim);
+    private static readonly Vec4f KpLungsDim = new(0.65f, 0.3f, 0.5f, KeyAlphaDim);
+    private static readonly Vec4f KpBrainDim = new(0.42f, 0.13f, 0.65f, KeyAlphaDim);
+    private static readonly Vec4f KpEyesDim = new(0f, 0.65f, 0.65f, KeyAlphaDim);
+    private static readonly Vec4f KpStd = new(1f, 0.6f, 0.1f, KeyAlphaDim);
+    private static readonly Vec4f KpStrong = new(1f, 1f, 0.35f, KeyAlphaStrong);
+
+    // KEYPOINTS on-top pass: GL state saved by BeginOnTop and restored by EndOnTop (value fields, no allocation).
+    private bool onTop, savedDepthTest, savedDepthMask, savedBlend;
+    private int savedDepthFunc, savedSrcRgb, savedDstRgb, savedSrcA, savedDstA;
+    private float savedLineWidth;
     internal const string WaitingLabel = "KEYPOINTS: waiting for server data";
     private const string NoServerLine = "hitboxviewer: no server data";
     private const long RequestIntervalMs = 250, ReplyTimeoutMs = 3000;
@@ -167,21 +183,71 @@ public sealed class HbvRenderer : IRenderer
         if (self == null) return;
         Vec3d cam = self.CameraPos;
         double maxD2 = cfg.MaxDrawDist * cfg.MaxDrawDist;
-        for (int n = 0; n < pickedCount; n++)
+        try
         {
-            Entity? e = picked[n];
-            if (e == null || e.Pos == null) continue;
-            double dx = e.Pos.X - cam.X, dy = e.Pos.Y - cam.Y, dz = e.Pos.Z - cam.Z;
-            if (dx * dx + dy * dy + dz * dz > maxD2) continue;
-            if (Mode == ViewMode.Keypoints)
+            for (int n = 0; n < pickedCount; n++)
             {
-                if (CoAvailable && !serverSilent && zones.TryGetValue(e.EntityId, out ZoneData? z)) CoAccess.DrawKeypoints(this, e, cam, z);
-                continue;
+                Entity? e = picked[n];
+                if (e == null || e.Pos == null) continue;
+                double dx = e.Pos.X - cam.X, dy = e.Pos.Y - cam.Y, dz = e.Pos.Z - cam.Z;
+                if (dx * dx + dy * dy + dz * dz > maxD2) continue;
+                if (Mode == ViewMode.Keypoints)
+                {
+                    if (CoAvailable && !serverSilent && zones.TryGetValue(e.EntityId, out ZoneData? z))
+                    {
+                        if (!onTop) BeginOnTop(); // KEYPOINTS only; TARGET/RADIUS below never enter it
+                        CoAccess.DrawKeypoints(this, e, cam, z);
+                    }
+                    continue;
+                }
+                DrawAabb(e, e.CollisionBox, cam, colCollision);
+                DrawAabb(e, e.SelectionBox, cam, colSelection);
+                if (CoAvailable) CoAccess.DrawColliders(this, e, cam);
             }
-            DrawAabb(e, e.CollisionBox, cam, colCollision);
-            DrawAabb(e, e.SelectionBox, cam, colSelection);
-            if (CoAvailable) CoAccess.DrawColliders(this, e, cam);
         }
+        finally
+        {
+            if (onTop) EndOnTop(); // every path out of the pass restores what BeginOnTop changed
+        }
+    }
+
+    /// <summary>
+    /// 0.2.1 KEYPOINTS fix. WireframeCube.Render forces GL_DEPTH_TEST on (WireframeCube.cs:67) against the
+    /// scene depth still bound at AfterFinalComposition, so organ colliders inside the body failed the test and
+    /// only flickered through where the moving mesh and the collider positions drifted apart. Disabling the
+    /// depth test here would be undone inside Render, but Render never touches the depth FUNCTION, so
+    /// DepthFunc(Always) makes every fragment pass while the test stays enabled. Depth writes stay off (Render
+    /// sets the mask false itself). Blend is set to standard alpha for the translucent highlight colours.
+    /// Everything changed here is captured first and put back in EndOnTop.
+    /// </summary>
+    private void BeginOnTop()
+    {
+        savedDepthTest = OGL.GL.IsEnabled(OGL.EnableCap.DepthTest);
+        savedDepthMask = OGL.GL.GetBoolean(OGL.GetPName.DepthWritemask);
+        savedDepthFunc = OGL.GL.GetInteger(OGL.GetPName.DepthFunc);
+        savedBlend = OGL.GL.IsEnabled(OGL.EnableCap.Blend);
+        savedSrcRgb = OGL.GL.GetInteger(OGL.GetPName.BlendSrcRgb);
+        savedDstRgb = OGL.GL.GetInteger(OGL.GetPName.BlendDstRgb);
+        savedSrcA = OGL.GL.GetInteger(OGL.GetPName.BlendSrcAlpha);
+        savedDstA = OGL.GL.GetInteger(OGL.GetPName.BlendDstAlpha);
+        savedLineWidth = OGL.GL.GetFloat(OGL.GetPName.LineWidth);
+        onTop = true;
+        OGL.GL.DepthFunc(OGL.DepthFunction.Always);
+        OGL.GL.BlendFuncSeparate(OGL.BlendingFactorSrc.SrcAlpha, OGL.BlendingFactorDest.OneMinusSrcAlpha,
+            OGL.BlendingFactorSrc.One, OGL.BlendingFactorDest.OneMinusSrcAlpha);
+    }
+
+    /// <summary>Restores depth func, depth test, depth mask, blend enable, blend func and line width.</summary>
+    private void EndOnTop()
+    {
+        onTop = false;
+        OGL.GL.DepthFunc((OGL.DepthFunction)savedDepthFunc);
+        if (savedDepthTest) capi.Render.GLEnableDepthTest(); else capi.Render.GLDisableDepthTest();
+        capi.Render.GLDepthMask(savedDepthMask);
+        if (savedBlend) OGL.GL.Enable(OGL.EnableCap.Blend); else OGL.GL.Disable(OGL.EnableCap.Blend);
+        OGL.GL.BlendFuncSeparate((OGL.BlendingFactorSrc)savedSrcRgb, (OGL.BlendingFactorDest)savedDstRgb,
+            (OGL.BlendingFactorSrc)savedSrcA, (OGL.BlendingFactorDest)savedDstA);
+        OGL.GL.LineWidth(savedLineWidth);
     }
 
     private void DrawAabb(Entity e, Cuboidf? b, Vec3d cam, Vec4f col)
@@ -292,7 +358,7 @@ public sealed class HbvRenderer : IRenderer
         if (noServerReported) return;
         noServerReported = true;
         capi.ShowChatMessage(NoServerLine);
-        capi.Logger.Notification("[hitboxviewer] KEYPOINTS: no server data (server lacks hitboxviewer 0.2.0 or did not reply)");
+        capi.Logger.Notification("[hitboxviewer] KEYPOINTS: no server data (server lacks hitboxviewer 0.2.x or did not reply)");
     }
 
     internal void OnZoneReply(HbvZoneReply reply)
@@ -313,13 +379,13 @@ public sealed class HbvRenderer : IRenderer
         {
             switch (OrganOf(part))
             {
-                case "Heart": return strong ? ColHeart : ColHeartDim;
-                case "Lungs": return strong ? ColLungs : ColLungsDim;
-                case "Brain": return strong ? ColBrain : ColBrainDim;
-                case "Eyes": return strong ? ColEyes : ColEyesDim;
+                case "Heart": return strong ? KpHeart : KpHeartDim;
+                case "Lungs": return strong ? KpLungs : KpLungsDim;
+                case "Brain": return strong ? KpBrain : KpBrainDim;
+                case "Eyes": return strong ? KpEyes : KpEyesDim;
             }
         }
-        return strong ? ColKeyStrong : ColKeyStd;
+        return strong ? KpStrong : KpStd;
     }
 
     // ---------------------------------------------------------------- dump
@@ -331,7 +397,7 @@ public sealed class HbvRenderer : IRenderer
         var sb = new StringBuilder(8192);
         EntityPlayer? self = capi.World.Player?.Entity;
         sb.Append("{\n");
-        J(sb, "tool", "hitboxviewer 0.2.0"); J(sb, "utc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
+        J(sb, "tool", "hitboxviewer 0.2.1"); J(sb, "utc", DateTime.UtcNow.ToString("o", CultureInfo.InvariantCulture));
         J(sb, "entityCode", e.Code?.ToString() ?? ""); Jn(sb, "entityId", e.EntityId);
         Jb(sb, "isRendered", e.IsRendered); Jb(sb, "alive", e.Alive);
         Jn(sb, "clientSize", e.Properties?.Client?.Size ?? 0);
